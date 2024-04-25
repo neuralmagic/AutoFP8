@@ -1,17 +1,12 @@
+import argparse
+import re
+from typing import Tuple
+
 import torch
 import torch.functional as F
-from typing import Tuple
 import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
-import re
-
-MODEL_ID = "facebook/opt-125m"
-# MODEL_ID = "echarlaix/tiny-random-mistral"
-
-
-NUM_PROMPTS = 512
-MAX_SEQ_LEN = 512
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 # HACK: override the dtype_byte_size function in transformers to support float8 types
@@ -208,7 +203,15 @@ def quantize_activations(model, calibration_tokens):
 
 
 if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-id", type=str)
+    parser.add_argument("--save-dir", type=str)
+    # parser.add_argument("--static-act", action="store_true")
+    parser.add_argument("--num-samples", type=int, default=512)
+    parser.add_argument("--max-seq-len", type=int, default=512)
+    args = parser.parse_args()
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     sample_input_tokens = tokenizer.apply_chat_template(
         [{"role": "user", "content": "What is your name?"}],
         add_generation_prompt=True,
@@ -216,7 +219,7 @@ if __name__ == "__main__":
     ).to("cuda")
 
     ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
-    ds = ds.shuffle(seed=42).select(range(NUM_PROMPTS))
+    ds = ds.shuffle(seed=42).select(range(args.num_samples))
     ds = ds.map(
         lambda batch: {
             "text": tokenizer.apply_chat_template(batch["messages"], tokenize=False)
@@ -228,14 +231,14 @@ if __name__ == "__main__":
         return_tensors="pt",
         truncation=True,
         padding="max_length",
-        max_length=MAX_SEQ_LEN,
+        max_length=args.max_seq_len,
         add_special_tokens=False,
     ).input_ids.to("cuda")
     print("Calibration tokens:", calibration_tokens.shape)
 
     # Load and test the model
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, torch_dtype="auto", device_map="auto"
+        args.model_id, torch_dtype="auto", device_map="auto"
     )
     output = model.generate(input_ids=sample_input_tokens, max_new_tokens=20)
     print("ORIGINAL:\n", tokenizer.decode(output[0]), "\n\n")
@@ -251,9 +254,8 @@ if __name__ == "__main__":
     print("ACT QUANT:\n", tokenizer.decode(output[0]), "\n\n")
 
     # Save the model fully quantized
-    output_path = "fp8-static-quant"
-    print(f"Saving the model to {output_path}")
+    print(f"Saving the model to {args.save_dir}")
     static_q_dict = {"quantization_config": {"quant_method": "fp8", "scheme": "static"}}
     model.config.update(static_q_dict)
-    model.save_pretrained(output_path)
-    tokenizer.save_pretrained(output_path)
+    model.save_pretrained(args.save_dir)
+    tokenizer.save_pretrained(args.save_dir)
