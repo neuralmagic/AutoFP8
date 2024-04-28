@@ -63,9 +63,10 @@ def per_tensor_quantize(tensor: torch.Tensor) -> Tuple[torch.Tensor, float]:
 
 def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
     cuda_compute_capability = torch.cuda.get_device_capability()
-    if cuda_compute_capability >= (9, 0):
+    shape = A.shape
+    if cuda_compute_capability >= (8, 9):
         output, _ = torch._scaled_mm(
-            A,
+            A.reshape(-1, A.shape[-1]),
             B.t(),
             out_dtype=out_dtype,
             scale_a=A_scale,
@@ -78,7 +79,7 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
             B.to(out_dtype) * B_scale.to(out_dtype),
             bias=bias,
         )
-    return output
+    return output.reshape(shape[0], shape[1], -1)
 
 
 class FP8StaticLinearQuantizer(torch.nn.Module):
@@ -171,6 +172,104 @@ def replace_module(model, name, new_module):
     setattr(parent, child_name, new_module)
 
 
+QKV_PROJ = ["q_proj", "k_proj", "v_proj"]
+GATE_UP_PROJ = ["gate_proj", "up_proj"]
+
+def quantize_weights_merged(model):
+    qkv_count = 0
+    gate_up_count = 0
+    qkv_layers = {}
+    gate_up_layers = {}
+
+    for name, linear in model.model.named_modules():
+        if not isinstance(linear, torch.nn.Linear):
+            continue
+        
+        proj_name = name.split(".")[-1]
+        # IF QKV, wait until we have all of them to quantize together.
+        if proj_name in QKV_PROJ:
+            qkv_count += 1
+            qkv_layers[proj_name] = (name, linear)
+        # IF GATE_UP, wait until we have all of them to quantize together.
+        elif proj_name in GATE_UP_PROJ:
+            gate_up_count += 1
+            gate_up_layers[proj_name] = (name, linear)
+        # OTHERWISE, quantize.
+        else:
+            quant_weight, quant_scale = per_tensor_quantize(linear.weight)
+            quant_linear = FP8DynamicLinear(quant_weight, quant_scale)
+            replace_module(model, name, quant_linear)
+            del linear
+
+        # ONCE WE HAVE THEM ALL FOR A SELF-ATTN BLOCK
+        if qkv_count == 3:
+            q_name, q_proj = qkv_layers["q_proj"]
+            k_name, k_proj = qkv_layers["k_proj"]
+            v_name, v_proj = qkv_layers["v_proj"]
+
+            wq = q_proj.weight
+            wk = k_proj.weight
+            wv = v_proj.weight
+
+            merged_weight = torch.cat([wq, wk, wv], dim=0)
+            merged_weight_q, quant_scale = per_tensor_quantize(merged_weight)
+        
+            start = 0
+            end = start + wq.shape[0]
+            wq_q = merged_weight_q[start:end, :]
+            
+            start = end
+            end = start + wk.shape[0]
+            wk_q = merged_weight_q[start:end, :]
+
+            start = end
+            end = start + wv.shape[0]
+            wv_q = merged_weight_q[start:end, :]
+
+            quant_linear_q = FP8DynamicLinear(wq_q, quant_scale.detach().clone())
+            replace_module(model, q_name, quant_linear_q)
+            quant_linear_k = FP8DynamicLinear(wk_q, quant_scale.detach().clone())
+            replace_module(model, k_name, quant_linear_k)
+            quant_linear_v = FP8DynamicLinear(wv_q, quant_scale.detach().clone())
+            replace_module(model, v_name, quant_linear_v)
+
+            del wq, wk, wv, q_proj, k_proj, v_proj
+
+            qkv_count = 0
+            qkv_layers = {}
+
+        # ONCE WE HAVE THEM ALL FOR AN MLP BLOCK.
+        if gate_up_count == 2:
+            gate_name, gate_proj = gate_up_layers["gate_proj"]
+            up_name, up_proj = gate_up_layers["up_proj"]
+
+            w_gate = gate_proj.weight
+            w_up = up_proj.weight
+
+            merged_weight = torch.cat([w_gate, w_up], dim=0)
+            merged_weight_q, quant_scale = per_tensor_quantize(merged_weight)
+            
+            start = 0
+            end = start + w_gate.shape[0]
+            w_gate_q = merged_weight_q[start:end, :]
+
+            start = end
+            end = start + w_up.shape[0]
+            w_up_q = merged_weight_q[start:end, :]
+
+            quant_linear_gate = FP8DynamicLinear(w_gate_q, quant_scale.detach().clone())
+            replace_module(model, gate_name, quant_linear_gate)
+            quant_linear_up = FP8DynamicLinear(w_up_q, quant_scale.detach().clone())
+            replace_module(model, up_name, quant_linear_up)
+
+            del w_gate, w_up, gate_proj, up_proj
+
+            gate_up_count = 0
+            gate_up_layers = {}
+        
+    cleanup_memory()
+
+
 def quantize_weights(model):
     for name, linear in model.model.named_modules():
         # if "gate" in name or not isinstance(linear, torch.nn.Linear):
@@ -228,8 +327,8 @@ def save_quantized_model(model, activation_scheme, save_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-id", type=str)
-    parser.add_argument("--save-dir", type=str)
+    parser.add_argument("--model-id", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct")
+    parser.add_argument("--save-dir", type=str, default="fp8-model")
     parser.add_argument(
         "--activation-scheme", type=str, default="static", choices=["static", "dynamic"]
     )
@@ -271,7 +370,8 @@ if __name__ == "__main__":
     print("ORIGINAL OUTPUT:\n", tokenizer.decode(output[0]), "\n\n")
 
     # Quantize weights.
-    quantize_weights(model)
+    # quantize_weights(model)
+    quantize_weights_merged(model)
     print("Weight-quantized model graph:\n", model)
     output = model.generate(input_ids=sample_input_tokens, max_new_tokens=20)
     print("WEIGHT QUANT OUTPUT:\n", tokenizer.decode(output[0]), "\n\n")
