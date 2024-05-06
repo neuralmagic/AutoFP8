@@ -1,5 +1,24 @@
 # AutoFP8
 
+Open-source FP8 quantization project for producting compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for implementation.
+
+# How to run quantized models
+
+Install vLLM: `pip install vllm>=0.4.2`
+
+Then simply pass the quantized checkpoint directly to vLLM's entrypoints! It will detect the checkpoint format using the `quantization_config` in the `config.json`.
+```python
+from vllm import LLM
+model = LLM("nm-testing/Meta-Llama-3-8B-Instruct-FP8")
+# INFO 05-06 10:06:23 model_runner.py:172] Loading model weights took 8.4596 GB
+
+outputs = model.generate("Once upon a time,")
+print(outputs[0].outputs[0].text)
+# ' there was a beautiful princess who lived in a far-off kingdom. She was kind'
+```
+
+## How to quantize a model
+
 Example model with static scales for activations and weights: https://huggingface.co/nm-testing/Meta-Llama-3-8B-Instruct-FP8
 
 Command to produce:
@@ -7,7 +26,7 @@ Command to produce:
 python quantize.py --model-id meta-llama/Meta-Llama-3-8B-Instruct --save-dir Meta-Llama-3-8B-Instruct-FP8
 ```
 
-## Checkpoint structure
+## Checkpoint structure explanation
 
 Here we detail the experimental structure for the fp8 checkpoints.
 
