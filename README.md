@@ -1,6 +1,6 @@
 # AutoFP8
 
-Open-source FP8 quantization project for producting compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for implementation.
+Open-source FP8 quantization project for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for implementation.
 
 # How to run quantized models
 
