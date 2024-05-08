@@ -6,6 +6,7 @@ from typing import Tuple
 import torch
 import torch.functional as F
 import transformers
+import tqdm
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -162,7 +163,7 @@ class FP8DynamicLinear(torch.nn.Module):
 def replace_module(model, name, new_module):
     if "." in name:
         parent_name = name.rsplit(".", 1)[0]
-        child_name = name[len(parent_name) + 1 :]
+        child_name = name[len(parent_name) + 1:]
         parent = model.model.get_submodule(parent_name)
     else:
         parent_name = ""
@@ -197,8 +198,11 @@ def quantize_activations(model, calibration_tokens):
     cleanup_memory()
 
     # Calibration.
-    for row_idx in range(calibration_tokens.shape[0]):
-        _ = model(calibration_tokens[row_idx].reshape(1, -1))
+    with tqdm.tqdm(total=calibration_tokens.shape[0], desc="Calibrating") as pbar:
+        for row_idx in range(calibration_tokens.shape[0]):
+            model(calibration_tokens[row_idx].reshape(1, -1))
+            torch.cuda.empty_cache()
+            pbar.update(1)
 
     # Replace quantizer with StaticLayer.
     for name, quantizer in model.model.named_modules():
