@@ -2,9 +2,36 @@
 
 Open-source FP8 quantization project for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for implementation.
 
-# How to run quantized models
+## How to quantize a model
 
-Install vLLM: `pip install vllm>=0.4.2`
+Install this repo's requirements:
+```bash
+pip install -r requirements.txt
+```
+
+Command to produce a `Meta-Llama-3-8B-Instruct-FP8` quantized LLM:
+```bash
+python quantize.py --model-id meta-llama/Meta-Llama-3-8B-Instruct --save-dir Meta-Llama-3-8B-Instruct-FP8
+```
+
+Example model checkpoint with FP8 static scales for activations and weights: https://huggingface.co/nm-testing/Meta-Llama-3-8B-Instruct-FP8
+
+All arguments available for `quantize.py`:
+```
+usage: quantize.py [-h] [--model-id MODEL_ID] [--save-dir SAVE_DIR] [--activation-scheme {static,dynamic}] [--num-samples NUM_SAMPLES] [--max-seq-len MAX_SEQ_LEN]
+
+options:
+  -h, --help            show this help message and exit
+  --model-id MODEL_ID
+  --save-dir SAVE_DIR
+  --activation-scheme {static,dynamic}
+  --num-samples NUM_SAMPLES
+  --max-seq-len MAX_SEQ_LEN
+```
+
+## How to run FP8 quantized models
+
+[vLLM](https://github.com/vllm-project/vllm) has full support for FP8 models quantized with this package. Install vLLM with: `pip install vllm>=0.4.2`
 
 Then simply pass the quantized checkpoint directly to vLLM's entrypoints! It will detect the checkpoint format using the `quantization_config` in the `config.json`.
 ```python
@@ -15,15 +42,6 @@ model = LLM("nm-testing/Meta-Llama-3-8B-Instruct-FP8")
 outputs = model.generate("Once upon a time,")
 print(outputs[0].outputs[0].text)
 # ' there was a beautiful princess who lived in a far-off kingdom. She was kind'
-```
-
-## How to quantize a model
-
-Example model with static scales for activations and weights: https://huggingface.co/nm-testing/Meta-Llama-3-8B-Instruct-FP8
-
-Command to produce:
-```bash
-python quantize.py --model-id meta-llama/Meta-Llama-3-8B-Instruct --save-dir Meta-Llama-3-8B-Instruct-FP8
 ```
 
 ## Checkpoint structure explanation
