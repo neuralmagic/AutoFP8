@@ -1,32 +1,57 @@
 # AutoFP8
 
-Open-source FP8 quantization project for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for implementation.
+Open-source FP8 quantization library for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for details on the implementation for inference.
 
-## How to quantize a model
+## Installation
 
-Install this repo's requirements:
+Clone this repo and install it from source:
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/neuralmagic/AutoFP8.git
+pip install -e AutoFP8
 ```
 
-Command to produce a `Meta-Llama-3-8B-Instruct-FP8` quantized LLM:
-```bash
-python quantize.py --model-id meta-llama/Meta-Llama-3-8B-Instruct --save-dir Meta-Llama-3-8B-Instruct-FP8
+A stable release will be published.
+
+## Quickstart
+
+This package introduces the `AutoFP8ForCausalLM` and `BaseQuantizeConfig` objects for managing how your model will be compressed.
+
+Once you load your `AutoFP8ForCausalLM`, you can tokenize your data and provide it to the `model.quantize(tokenized_text)` function to calibrate+compress the model.
+
+Finally, you can save your quantized model in a compressed checkpoint format compatible with vLLM using `model.save_quantized("my_model_fp8")`.
+
+Here is a full example covering that flow:
+
+```python
+from transformers import AutoTokenizer
+from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
+
+pretrained_model_dir = "meta-llama/Meta-Llama-3-8B-Instruct"
+quantized_model_dir = "Meta-Llama-3-8B-Instruct-FP8"
+
+tokenizer = AutoTokenizer.from_pretrained(pretrained_model_dir, use_fast=True)
+examples = ["auto_fp8 is an easy-to-use model quantization library"]
+examples = tokenizer(examples, return_tensors="pt").to("cuda")
+
+quantize_config = BaseQuantizeConfig(quant_method="fp8", activation_scheme="dynamic")
+
+model = AutoFP8ForCausalLM.from_pretrained(
+    pretrained_model_dir, quantize_config=quantize_config
+)
+model.quantize(examples)
+model.save_quantized(quantized_model_dir)
 ```
 
-Example model checkpoint with FP8 static scales for activations and weights: https://huggingface.co/nm-testing/Meta-Llama-3-8B-Instruct-FP8
+Finally, load it into vLLM for inference! Support began in v0.4.2 (`pip install vllm>=0.4.2`). Note that hardware support for FP8 tensor cores must be available in the GPU you are using (Ada Lovelace, Hopper, and newer).
 
-All arguments available for `quantize.py`:
-```
-usage: quantize.py [-h] [--model-id MODEL_ID] [--save-dir SAVE_DIR] [--activation-scheme {static,dynamic}] [--num-samples NUM_SAMPLES] [--max-seq-len MAX_SEQ_LEN]
+```python
+from vllm import LLM
 
-options:
-  -h, --help            show this help message and exit
-  --model-id MODEL_ID
-  --save-dir SAVE_DIR
-  --activation-scheme {static,dynamic}
-  --num-samples NUM_SAMPLES
-  --max-seq-len MAX_SEQ_LEN
+model = LLM("Meta-Llama-3-8B-Instruct-FP8")
+# INFO 05-10 18:02:40 model_runner.py:175] Loading model weights took 8.4595 GB
+
+print(model.generate("Once upon a time"))
+# [RequestOutput(request_id=0, prompt='Once upon a time', prompt_token_ids=[128000, 12805, 5304, 264, 892], prompt_logprobs=None, outputs=[CompletionOutput(index=0, text=' there was a man who fell in love with a woman. The man was so', token_ids=[1070, 574, 264, 893, 889, 11299, 304, 3021, 449, 264, 5333, 13, 578, 893, 574, 779], cumulative_logprob=-21.314169232733548, logprobs=None, finish_reason=length, stop_reason=None)], finished=True, metrics=RequestMetrics(arrival_time=1715378569.478381, last_token_time=1715378569.478381, first_scheduled_time=1715378569.480648, first_token_time=1715378569.7070432, time_in_queue=0.002267122268676758, finished_time=1715378570.104807), lora_request=None)]
 ```
 
 ## How to run FP8 quantized models
@@ -36,7 +61,7 @@ options:
 Then simply pass the quantized checkpoint directly to vLLM's entrypoints! It will detect the checkpoint format using the `quantization_config` in the `config.json`.
 ```python
 from vllm import LLM
-model = LLM("nm-testing/Meta-Llama-3-8B-Instruct-FP8")
+model = LLM("neuralmagic/Meta-Llama-3-8B-Instruct-FP8")
 # INFO 05-06 10:06:23 model_runner.py:172] Loading model weights took 8.4596 GB
 
 outputs = model.generate("Once upon a time,")
