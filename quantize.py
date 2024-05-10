@@ -165,7 +165,7 @@ class FP8DynamicLinear(torch.nn.Module):
 def replace_module(model, name, new_module):
     if "." in name:
         parent_name = name.rsplit(".", 1)[0]
-        child_name = name[len(parent_name) + 1:]
+        child_name = name[len(parent_name) + 1 :]
         parent = model.model.get_submodule(parent_name)
     else:
         parent_name = ""
@@ -193,7 +193,9 @@ def quantize_activations(model, calibration_tokens):
         if not isinstance(dynamic_quant_linear, FP8DynamicLinear):
             continue
         quantizer = FP8StaticLinearQuantizer(
-            dynamic_quant_linear.weight, dynamic_quant_linear.weight_scale, dynamic_quant_linear.bias
+            dynamic_quant_linear.weight,
+            dynamic_quant_linear.weight_scale,
+            dynamic_quant_linear.bias,
         )
         replace_module(model, name, quantizer)
         del dynamic_quant_linear
@@ -212,7 +214,10 @@ def quantize_activations(model, calibration_tokens):
         if not isinstance(quantizer, FP8StaticLinearQuantizer):
             continue
         static_proj = FP8StaticLinear(
-            quantizer.weight, quantizer.weight_scale, quantizer.bias, quantizer.act_scale
+            quantizer.weight,
+            quantizer.weight_scale,
+            quantizer.bias,
+            quantizer.act_scale,
         )
         replace_module(model, name, static_proj)
         del quantizer

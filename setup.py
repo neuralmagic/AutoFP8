@@ -8,7 +8,7 @@ setup(
     description="FP8 quantization for Transformers.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/neuralmagic/auto_fp8",
+    url="https://github.com/neuralmagic/AutoFP8",
     packages=find_packages(),
     install_requires=[
         "torch>=2.2",

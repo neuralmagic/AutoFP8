@@ -163,7 +163,7 @@ class FP8DynamicLinear(torch.nn.Module):
 def replace_module(model, name, new_module):
     if "." in name:
         parent_name = name.rsplit(".", 1)[0]
-        child_name = name[len(parent_name) + 1:]
+        child_name = name[len(parent_name) + 1 :]
         parent = model.model.get_submodule(parent_name)
     else:
         parent_name = ""
