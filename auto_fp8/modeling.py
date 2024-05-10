@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoModelForCausalLM, PreTrainedModel
 from auto_fp8.quantize import (
     quantize_weights,
     quantize_activations,
@@ -14,8 +14,6 @@ class AutoFP8ForCausalLM:
         model: PreTrainedModel,
         quantize_config: BaseQuantizeConfig,
     ):
-        # super().__init__()
-
         self.model = model
         self.model_type = self.model.config.model_type
         self.quantize_config = quantize_config
@@ -29,11 +27,6 @@ class AutoFP8ForCausalLM:
         **model_init_kwargs,
     ):
         """Load the un-quantized pretrained model"""
-
-        # if not torch.cuda.is_available():
-        #     raise EnvironmentError(
-        #         "Load pretrained model to do quantization requires CUDA available."
-        #     )
 
         def skip(*args, **kwargs):
             pass

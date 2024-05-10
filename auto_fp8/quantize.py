@@ -2,10 +2,9 @@ import gc
 import re
 from typing import Tuple
 import torch
-import torch.functional as F
 import transformers
 import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
@@ -59,8 +58,10 @@ def per_tensor_quantize(tensor: torch.Tensor) -> Tuple[torch.Tensor, float]:
 
 
 def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
-    cuda_compute_capability = torch.cuda.get_device_capability()
-    if cuda_compute_capability >= (9, 0):
+    native_fp8_support = (
+        torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
+    )
+    if native_fp8_support:
         output, _ = torch._scaled_mm(
             A,
             B.t(),

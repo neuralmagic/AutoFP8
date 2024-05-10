@@ -4,7 +4,6 @@ import re
 from typing import Tuple
 
 import torch
-import torch.functional as F
 import transformers
 import tqdm
 from datasets import load_dataset
