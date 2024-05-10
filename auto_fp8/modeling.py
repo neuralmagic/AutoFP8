@@ -28,12 +28,12 @@ class AutoFP8ForCausalLM:
         quantize_config: BaseQuantizeConfig,
         **model_init_kwargs,
     ):
-        """load un-quantized pretrained model to cpu"""
+        """Load the un-quantized pretrained model"""
 
-        if not torch.cuda.is_available():
-            raise EnvironmentError(
-                "Load pretrained model to do quantization requires CUDA available."
-            )
+        # if not torch.cuda.is_available():
+        #     raise EnvironmentError(
+        #         "Load pretrained model to do quantization requires CUDA available."
+        #     )
 
         def skip(*args, **kwargs):
             pass
@@ -88,9 +88,7 @@ class AutoFP8ForCausalLM:
                     model.seqlen = model_config[key]
                     break
         else:
-            print(
-                "can't get model's sequence length from model config, will set to 2048."
-            )
+            print("Can't get model's sequence length, setting to 2048.")
             model.seqlen = 2048
         model.eval()
 
