@@ -33,7 +33,6 @@ def cleanup_memory():
 
 def per_tensor_quantize(tensor: torch.Tensor) -> Tuple[torch.Tensor, float]:
     """Quantize a tensor using per-tensor static scaling factor.
-
     Args:
         tensor: The input tensor.
     """
@@ -83,11 +82,12 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
 
 
 class FP8StaticLinearQuantizer(torch.nn.Module):
-    def __init__(self, qweight, weight_scale):
+    def __init__(self, qweight, weight_scale, bias):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
         self.act_scale = None
+        self.bias = bias
 
     def forward(self, x):
         # Dynamically quantize
@@ -105,18 +105,19 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
             A_scale=self.act_scale,
             B=self.weight,
             B_scale=self.weight_scale,
-            bias=None,
+            bias=self.bias,
             out_dtype=x.dtype,
         )
         return output
 
 
 class FP8StaticLinear(torch.nn.Module):
-    def __init__(self, qweight, weight_scale, act_scale=0.0):
+    def __init__(self, qweight, weight_scale, bias, act_scale=0.0):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
         self.act_scale = torch.nn.Parameter(act_scale, requires_grad=False)
+        self.bias = bias
 
     def per_tensor_quantize(
         self, tensor: torch.Tensor, inv_scale: float
@@ -135,17 +136,18 @@ class FP8StaticLinear(torch.nn.Module):
             A_scale=self.act_scale,
             B=self.weight,
             B_scale=self.weight_scale,
-            bias=None,
+            bias=self.bias,
             out_dtype=x.dtype,
         )
         return output
 
 
 class FP8DynamicLinear(torch.nn.Module):
-    def __init__(self, qweight, scale):
+    def __init__(self, qweight, scale, bias):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(scale, requires_grad=False)
+        self.bias = bias
 
     def forward(self, x):
         qinput, x_scale = per_tensor_quantize(x)
@@ -154,7 +156,7 @@ class FP8DynamicLinear(torch.nn.Module):
             A_scale=x_scale,
             B=self.weight,
             B_scale=self.weight_scale,
-            bias=None,
+            bias=self.bias,
             out_dtype=x.dtype,
         )
         return output
@@ -178,7 +180,7 @@ def quantize_weights(model):
         if not isinstance(linear, torch.nn.Linear):
             continue
         quant_weight, quant_scale = per_tensor_quantize(linear.weight)
-        quant_linear = FP8DynamicLinear(quant_weight, quant_scale)
+        quant_linear = FP8DynamicLinear(quant_weight, quant_scale, linear.bias)
         replace_module(model, name, quant_linear)
         del linear
     cleanup_memory()
@@ -191,7 +193,7 @@ def quantize_activations(model, calibration_tokens):
         if not isinstance(dynamic_quant_linear, FP8DynamicLinear):
             continue
         quantizer = FP8StaticLinearQuantizer(
-            dynamic_quant_linear.weight, dynamic_quant_linear.weight_scale
+            dynamic_quant_linear.weight, dynamic_quant_linear.weight_scale, dynamic_quant_linear.bias
         )
         replace_module(model, name, quantizer)
         del dynamic_quant_linear
@@ -210,7 +212,7 @@ def quantize_activations(model, calibration_tokens):
         if not isinstance(quantizer, FP8StaticLinearQuantizer):
             continue
         static_proj = FP8StaticLinear(
-            quantizer.weight, quantizer.weight_scale, quantizer.act_scale
+            quantizer.weight, quantizer.weight_scale, quantizer.bias, quantizer.act_scale
         )
         replace_module(model, name, static_proj)
         del quantizer
@@ -218,6 +220,7 @@ def quantize_activations(model, calibration_tokens):
 
 
 def save_quantized_model(model, activation_scheme, save_dir):
+    print(model)
     print(f"Saving the model to {save_dir}")
     static_q_dict = {
         "quantization_config": {
