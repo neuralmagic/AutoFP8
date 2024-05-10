@@ -75,7 +75,7 @@ class AutoFP8ForCausalLM:
             model_init_kwargs["device_map"] = "auto"
 
         merged_kwargs = {**model_init_kwargs, **cached_file_kwargs}
-        print(merged_kwargs)
+        print("Loading model with the following kwargs:", merged_kwargs)
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path, **merged_kwargs
         )
@@ -102,10 +102,10 @@ class AutoFP8ForCausalLM:
                 return calibration_tokens.input_ids
             return calibration_tokens
 
-        if self.quantize_config.activation_scheme == "dynamic":
-            quantize_weights(self.model)
-        else:
-            quantize_weights(self.model)
+        # Always quantize the weights as they do not require calibration data
+        quantize_weights(self.model)
+
+        if self.quantize_config.activation_scheme == "static":
             quantize_activations(
                 self.model, _prepare_calibration_data(calibration_tokens)
             )
