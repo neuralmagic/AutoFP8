@@ -4,8 +4,8 @@ import re
 from typing import Tuple
 
 import torch
-import transformers
 import tqdm
+import transformers
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 

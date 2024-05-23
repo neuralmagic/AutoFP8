@@ -1,7 +1,9 @@
 import os
-from transformers import AutoTokenizer
-from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 import shutil
+
+from transformers import AutoTokenizer
+
+from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 
 
 def test_quantization():
