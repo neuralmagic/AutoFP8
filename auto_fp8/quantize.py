@@ -81,7 +81,7 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
             bias=bias,
         )
         if need_reshape:
-            output = output.reshape((batch_size, *output.shape))
+            output = output.reshape((batch_size, output.shape[0] // batch_size, output.shape[1]))
     else:
         output = torch.nn.functional.linear(
             A.to(out_dtype) * A_scale,
