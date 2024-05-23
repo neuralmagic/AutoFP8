@@ -9,12 +9,10 @@ tokenizer = AutoTokenizer.from_pretrained(pretrained_model_dir, use_fast=True)
 examples = ["auto_fp8 is an easy-to-use model quantization library"]
 examples = tokenizer(examples, return_tensors="pt").to("cuda")
 
-ignore_patterns = ["re:.*gate"]
-
 quantize_config = BaseQuantizeConfig(
     quant_method="fp8",
     activation_scheme="dynamic",  # or "static"
-    ignore_patterns=ignore_patterns,
+    ignore_patterns=["re:.*lm_head"],
 )
 
 model = AutoFP8ForCausalLM.from_pretrained(
