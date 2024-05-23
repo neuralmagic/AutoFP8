@@ -140,8 +140,6 @@ def get_layers_to_ignore(model, ignore_patterns) -> List[str]:
             if ignore_pattern.startswith(regex_prefix):
                 # check if name matches regex and add to set if true
                 regex_pattern = ignore_pattern[len(regex_prefix) :]
-                print(regex_pattern)
-                print(name)
                 if re.search(regex_pattern, name):
                     ignored_layers.add(name)
             else:

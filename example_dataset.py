@@ -7,6 +7,8 @@ pretrained_model_dir = "meta-llama/Meta-Llama-3-8B-Instruct"
 quantized_model_dir = "Meta-Llama-3-8B-Instruct-FP8"
 
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_dir, use_fast=True)
+tokenizer.pad_token = tokenizer.eos_token
+
 ds = load_dataset("mgoin/ultrachat_2k", split="train_sft").select(512)
 examples = [tokenizer.apply_chat_template(batch["messages"], tokenize=False) for batch in ds]
 examples = tokenizer(examples, padding=True, truncation=True, return_tensors="pt").to("cuda")
