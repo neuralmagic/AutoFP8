@@ -65,14 +65,23 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
         torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
     )
     if native_fp8_support:
+        need_reshape = A.dim() == 3
+        if need_reshape:
+            batch_size = A.shape[0]
+            A_input = A.reshape(-1, A.shape[-1])
+        else:
+            batch_size = None
+            A_input = A
         output, _ = torch._scaled_mm(
-            A,
+            A_input,
             B.t(),
             out_dtype=out_dtype,
             scale_a=A_scale,
             scale_b=B_scale,
             bias=bias,
         )
+        if need_reshape:
+            output = output.reshape((batch_size, *output.shape))
     else:
         output = torch.nn.functional.linear(
             A.to(out_dtype) * A_scale,
