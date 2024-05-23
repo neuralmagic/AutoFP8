@@ -1,10 +1,13 @@
 import gc
 import re
-from typing import Tuple
+from typing import List, Tuple
+
 import torch
-import transformers
 import tqdm
-from transformers import AutoTokenizer
+import transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from .config import BaseQuantizeConfig
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
@@ -39,8 +42,8 @@ def per_tensor_quantize(tensor: torch.Tensor) -> Tuple[torch.Tensor, float]:
     if tensor.numel() == 0:
         # Deal with empty tensors (triggered by empty MoE experts)
         min_val, max_val = (
-            torch.tensor(0.0, dtype=tensor.dtype),
-            torch.tensor(1.0, dtype=tensor.dtype),
+            torch.tensor(-16.0, dtype=tensor.dtype),
+            torch.tensor(16.0, dtype=tensor.dtype),
         )
     else:
         min_val, max_val = tensor.aminmax()
@@ -80,7 +83,9 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
 
 
 class FP8StaticLinearQuantizer(torch.nn.Module):
-    def __init__(self, qweight, weight_scale, bias):
+    def __init__(
+        self, qweight: torch.Tensor, weight_scale: torch.Tensor, bias: torch.Tensor
+    ):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
@@ -105,7 +110,13 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
 
 
 class FP8StaticLinear(torch.nn.Module):
-    def __init__(self, qweight, weight_scale, bias, act_scale=0.0):
+    def __init__(
+        self,
+        qweight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: torch.Tensor,
+        act_scale: float = 1.0,
+    ):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
@@ -133,7 +144,7 @@ class FP8StaticLinear(torch.nn.Module):
 
 
 class FP8DynamicLinear(torch.nn.Module):
-    def __init__(self, qweight, scale, bias):
+    def __init__(self, qweight: torch.Tensor, scale: torch.Tensor, bias: torch.Tensor):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(scale, requires_grad=False)
@@ -152,21 +163,28 @@ class FP8DynamicLinear(torch.nn.Module):
         return output
 
 
-def replace_module(model, name, new_module):
+def replace_module(model: AutoModelForCausalLM, name: str, new_module: torch.nn.Module):
     if "." in name:
         parent_name = name.rsplit(".", 1)[0]
         child_name = name[len(parent_name) + 1 :]
-        parent = model.model.get_submodule(parent_name)
+        parent = model.get_submodule(parent_name)
     else:
         parent_name = ""
-        parent = model.model
+        parent = model
         child_name = name
     setattr(parent, child_name, new_module)
 
 
-def quantize_weights(model):
-    for name, linear in model.model.named_modules():
-        if not isinstance(linear, torch.nn.Linear):
+def quantize_weights(
+    model: AutoModelForCausalLM,
+    quantize_config: BaseQuantizeConfig,
+    ignored_layers: List[str] = [],
+):
+    for name, linear in model.named_modules():
+        if (
+            not isinstance(linear, torch.nn.Linear)
+            or name in quantize_config.ignored_layers
+        ):
             continue
         quant_weight, quant_scale = per_tensor_quantize(linear.weight)
         quant_linear = FP8DynamicLinear(quant_weight, quant_scale, linear.bias)
@@ -175,9 +193,17 @@ def quantize_weights(model):
     cleanup_memory()
 
 
-def quantize_activations(model, calibration_tokens):
-    for name, dynamic_quant_linear in model.model.named_modules():
-        if not isinstance(dynamic_quant_linear, FP8DynamicLinear):
+def quantize_activations(
+    model: AutoModelForCausalLM,
+    quantize_config: BaseQuantizeConfig,
+    calibration_tokens,
+    ignored_layers: List[str] = [],
+):
+    for name, dynamic_quant_linear in model.named_modules():
+        if (
+            not isinstance(dynamic_quant_linear, FP8DynamicLinear)
+            or name in quantize_config.ignored_layers
+        ):
             continue
         quantizer = FP8StaticLinearQuantizer(
             dynamic_quant_linear.weight,
@@ -196,8 +222,11 @@ def quantize_activations(model, calibration_tokens):
             pbar.update(1)
 
     # Replace dynamic quantizer with StaticLinear for export
-    for name, quantizer in model.model.named_modules():
-        if not isinstance(quantizer, FP8StaticLinearQuantizer):
+    for name, quantizer in model.named_modules():
+        if (
+            not isinstance(quantizer, FP8StaticLinearQuantizer)
+            or name in quantize_config.ignored_layers
+        ):
             continue
         static_proj = FP8StaticLinear(
             quantizer.weight,
@@ -210,13 +239,19 @@ def quantize_activations(model, calibration_tokens):
     cleanup_memory()
 
 
-def save_quantized_model(model, activation_scheme, save_dir):
+def save_quantized_model(
+    model: AutoModelForCausalLM,
+    quant_config: BaseQuantizeConfig,
+    save_dir: str,
+    ignored_layers: List[str] = [],
+):
     print(model)
     print(f"Saving the model to {save_dir}")
     static_q_dict = {
         "quantization_config": {
             "quant_method": "fp8",
-            "activation_scheme": activation_scheme,
+            "activation_scheme": quant_config.activation_scheme,
+            "ignored_layers": quant_config.ignored_layers,
         }
     }
     model.config.update(static_q_dict)

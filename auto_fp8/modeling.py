@@ -1,23 +1,33 @@
+import re
+from typing import List
+
 import torch
-from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers import AutoModelForCausalLM
+
+from auto_fp8.config import BaseQuantizeConfig
 from auto_fp8.quantize import (
-    quantize_weights,
     quantize_activations,
+    quantize_weights,
     save_quantized_model,
 )
-from auto_fp8.config import BaseQuantizeConfig
 
 
 class AutoFP8ForCausalLM:
     def __init__(
         self,
-        model: PreTrainedModel,
+        model: AutoModelForCausalLM,
         quantize_config: BaseQuantizeConfig,
     ):
         self.model = model
         self.model_type = self.model.config.model_type
-        self.quantize_config = quantize_config
         self.config = self.model.config
+
+        # Gather the Linear module names that we want to ignore
+        quantize_config.ignored_layers = get_layers_to_ignore(
+            self.model, quantize_config.ignore_patterns
+        )
+
+        self.quantize_config = quantize_config
 
     @classmethod
     def from_pretrained(
@@ -94,16 +104,47 @@ class AutoFP8ForCausalLM:
             return calibration_tokens
 
         # Always quantize the weights as they do not require calibration data
-        quantize_weights(self.model)
+        quantize_weights(self.model, self.quantize_config)
 
         if self.quantize_config.activation_scheme == "static":
             quantize_activations(
-                self.model, _prepare_calibration_data(calibration_tokens)
+                self.model,
+                self.quantize_config,
+                _prepare_calibration_data(calibration_tokens),
             )
+
+            # import copy
+            # for layer in self.model.model.layers:
+            #     layer.self_attn.kv_scale = copy.deepcopy(layer.self_attn.k_proj.act_scale)
 
     def save_quantized(self, save_dir):
         save_quantized_model(
             self.model,
-            activation_scheme=self.quantize_config.activation_scheme,
+            quant_config=self.quantize_config,
             save_dir=save_dir,
         )
+
+
+def get_layers_to_ignore(model, ignore_patterns) -> List[str]:
+    ignored_layers = set()
+
+    # TODO: don't always ignore lm_head
+    ignore_patterns.append("re:.*lm_head")
+
+    for name, linear in model.named_modules():
+        if not isinstance(linear, torch.nn.Linear):
+            continue
+
+        for ignore_pattern in ignore_patterns:
+            regex_prefix = "re:"
+            if ignore_pattern.startswith(regex_prefix):
+                # check if name matches regex and add to set if true
+                regex_pattern = ignore_pattern[len(regex_prefix) :]
+                if re.search(regex_pattern, name):
+                    ignored_layers.add(name)
+            else:
+                # else, exact match
+                if ignore_pattern == name:
+                    ignored_layers.add(name)
+
+    return list(ignored_layers)
