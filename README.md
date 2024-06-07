@@ -86,7 +86,7 @@ Each quantized layer in the state_dict will have:
 If the config has `"activation_scheme": "static"`:
 ```
 model.layers.0.mlp.down_proj.weight              < F8_E4M3
-model.layers.0.mlp.down_proj.input_scale           < F32
+model.layers.0.mlp.down_proj.input_scale         < F32
 model.layers.0.mlp.down_proj.weight_scale        < F32
 ```
 If config has `"activation_scheme": "dynamic"`:
