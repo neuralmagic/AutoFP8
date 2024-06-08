@@ -115,7 +115,7 @@ class AutoFP8ForCausalLM:
 
             # import copy
             # for layer in self.model.model.layers:
-            #     layer.self_attn.kv_scale = copy.deepcopy(layer.self_attn.k_proj.act_scale)
+            #     layer.self_attn.kv_scale = copy.deepcopy(layer.self_attn.k_proj.input_scale)
 
     def save_quantized(self, save_dir):
         save_quantized_model(

@@ -104,18 +104,18 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
-        self.act_scale = None
+        self.input_scale = None
         self.bias = bias
 
     def forward(self, x):
-        qinput, x_act_scale = per_tensor_quantize(x)
-        if self.act_scale is None:
-            self.act_scale = torch.nn.Parameter(x_act_scale)
-        elif x_act_scale > self.act_scale:
-            self.act_scale = torch.nn.Parameter(x_act_scale)
+        qinput, x_input_scale = per_tensor_quantize(x)
+        if self.input_scale is None:
+            self.input_scale = torch.nn.Parameter(x_input_scale)
+        elif x_input_scale > self.input_scale:
+            self.input_scale = torch.nn.Parameter(x_input_scale)
         output = fp8_gemm(
             A=qinput,
-            A_scale=self.act_scale,
+            A_scale=self.input_scale,
             B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
@@ -130,12 +130,12 @@ class FP8StaticLinear(torch.nn.Module):
         qweight: torch.Tensor,
         weight_scale: torch.Tensor,
         bias: torch.Tensor,
-        act_scale: float = 1.0,
+        input_scale: float = 1.0,
     ):
         super().__init__()
         self.weight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
-        self.act_scale = torch.nn.Parameter(act_scale, requires_grad=False)
+        self.input_scale = torch.nn.Parameter(input_scale, requires_grad=False)
         self.bias = bias
 
     def per_tensor_quantize(
@@ -146,10 +146,10 @@ class FP8StaticLinear(torch.nn.Module):
         return qweight.to(torch.float8_e4m3fn)
 
     def forward(self, x):
-        qinput = self.per_tensor_quantize(x, inv_scale=self.act_scale)
+        qinput = self.per_tensor_quantize(x, inv_scale=self.input_scale)
         output = fp8_gemm(
             A=qinput,
-            A_scale=self.act_scale,
+            A_scale=self.input_scale,
             B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
@@ -247,7 +247,7 @@ def quantize_activations(
             quantizer.weight,
             quantizer.weight_scale,
             quantizer.bias,
-            quantizer.act_scale,
+            quantizer.input_scale,
         )
         replace_module(model, name, static_proj)
         del quantizer
