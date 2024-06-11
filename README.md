@@ -2,6 +2,8 @@
 
 Open-source FP8 quantization library for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for details on the implementation for inference.
 
+> NOTE: AutoFP8 is in early beta and subject to change
+
 ## Installation
 
 Clone this repo and install it from source:
