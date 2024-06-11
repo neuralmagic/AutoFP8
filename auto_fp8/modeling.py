@@ -71,10 +71,10 @@ class AutoFP8ForCausalLM:
         torch.cuda.empty_cache()
 
         # Important defaults
-        if not hasattr(model_init_kwargs, "torch_dtype"):
+        if not "torch_dtype" in model_init_kwargs:
             model_init_kwargs["torch_dtype"] = "auto"
 
-        if not hasattr(model_init_kwargs, "device_map"):
+        if not "device_map" in model_init_kwargs:
             model_init_kwargs["device_map"] = "auto"
 
         merged_kwargs = {**model_init_kwargs, **cached_file_kwargs}
