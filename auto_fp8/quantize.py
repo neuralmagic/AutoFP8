@@ -72,11 +72,11 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
         # Deal with empty tensors (triggeted by empty MoE experts)
         return torch.empty(size=(0, B.shape[0]), dtype=out_dtype, device=A.device)
 
-    native_fp8_support = (
-        torch.cuda.is_available()
-        and torch.cuda.get_device_capability() >= (8, 9)
-        and False
-    )
+    # TODO: Disable native fp8 gemm for now, always just dequantize
+    # native_fp8_support = (
+    #     torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+    # )
+    native_fp8_support = False
     if native_fp8_support:
         need_reshape = A.dim() == 3
         if need_reshape:
