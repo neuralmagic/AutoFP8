@@ -1,7 +1,6 @@
 import gc
 import re
 from typing import List, Tuple
-from tqdm import tqdm
 
 import torch
 import tqdm
@@ -196,7 +195,8 @@ def quantize_weights(
     quantize_config: BaseQuantizeConfig,
     ignored_layers: List[str] = [],
 ):
-    for name, linear in tqdm(model.named_modules(), desc="Quantizing weights"):
+    named_modules = list(model.named_modules())
+    for name, linear in tqdm.tqdm(named_modules, desc="Quantizing weights"):
         if (
             not isinstance(linear, torch.nn.Linear)
             or name in quantize_config.ignored_layers
