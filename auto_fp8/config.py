@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 
 class BaseQuantizeConfig:
@@ -17,13 +17,17 @@ class BaseQuantizeConfig:
             regex style matching i.e. re.search(), for each Linear layer.
             By default, "re:.*lm_head" is included to ignore the embedding
             Linear layer usually at the end of decoder LLMs
+        kv_cache_quant_targets: Tuple of Linear module names to target for
+            calibration of the output scales for KV cache quantization.
+            Usually, these should be `("k_proj", "v_proj")`.
     """
 
     def __init__(
         self,
         quant_method: str = "fp8",
         activation_scheme: str = "static",
-        ignore_patterns: List[str] = [],
+        ignore_patterns: List[str] = ["re:.*lm_head"],
+        kv_cache_quant_targets: Optional[Tuple[str]] = None,
     ):
         if quant_method != "fp8":
             raise ValueError("Only FP8 quantization is supported.")
@@ -34,4 +38,5 @@ class BaseQuantizeConfig:
         self.quant_method = quant_method
         self.activation_scheme = activation_scheme
         self.ignore_patterns = ignore_patterns
+        self.kv_cache_quant_targets = kv_cache_quant_targets
         self.ignored_layers = []

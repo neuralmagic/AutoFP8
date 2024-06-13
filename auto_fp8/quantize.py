@@ -1,6 +1,6 @@
 import gc
 import re
-from typing import List, Tuple
+from typing import Optional, Tuple
 import copy
 
 import torch
@@ -61,13 +61,21 @@ def per_tensor_quantize(tensor: torch.Tensor) -> Tuple[torch.Tensor, float]:
     return qweight, scale
 
 
+def static_per_tensor_quantize(tensor: torch.Tensor, inv_scale: float) -> torch.Tensor:
+    finfo = torch.finfo(torch.float8_e4m3fn)
+    qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)
+    return qweight.to(torch.float8_e4m3fn)
+
+
 def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
     if A.numel() == 0:
         # Deal with empty tensors (triggeted by empty MoE experts)
         return torch.empty(size=(0, B.shape[0]), dtype=out_dtype, device=A.device)
-    
+
     native_fp8_support = (
-        torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+        torch.cuda.is_available()
+        and torch.cuda.get_device_capability() >= (8, 9)
+        and False
     )
     if native_fp8_support:
         need_reshape = A.dim() == 3
@@ -98,15 +106,48 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
     return output
 
 
-class FP8StaticLinearQuantizer(torch.nn.Module):
+# Class responsible for quantizing weights
+class FP8DynamicLinear(torch.nn.Module):
     def __init__(
-        self, qweight: torch.Tensor, weight_scale: torch.Tensor, bias: torch.Tensor
+        self,
+        qweight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: torch.nn.Parameter,
     ):
         super().__init__()
-        self.weight = torch.nn.Parameter(qweight, requires_grad=False)
+        self.qweight = torch.nn.Parameter(qweight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
-        self.input_scale = None
         self.bias = bias
+
+    def forward(self, x):
+        qinput, x_scale = per_tensor_quantize(x)
+        output = fp8_gemm(
+            A=qinput,
+            A_scale=x_scale,
+            B=self.qweight,
+            B_scale=self.weight_scale,
+            bias=self.bias,
+            out_dtype=x.dtype,
+        )
+        return output
+
+
+# Module responsible for taking already quantized weights, and recording input scales (and possibly output scales) using an activation observer
+class FP8StaticLinearQuantizer(torch.nn.Module):
+    def __init__(
+        self,
+        qweight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: torch.nn.Parameter,
+        quantize_output: bool = False,
+    ):
+        super().__init__()
+        self.qweight = torch.nn.Parameter(qweight, requires_grad=False)
+        self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
+        self.bias = bias
+        self.input_scale = None
+        self.output_scale = None
+        self.quantize_output = quantize_output
 
     def forward(self, x):
         qinput, x_input_scale = per_tensor_quantize(x)
@@ -117,65 +158,56 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
-            B=self.weight,
+            B=self.qweight,
             B_scale=self.weight_scale,
             bias=self.bias,
             out_dtype=x.dtype,
         )
+
+        # Optionally, quantize output and record scale
+        if self.quantize_output:
+            qoutput, output_scale = per_tensor_quantize(output)
+            if self.output_scale is None:
+                self.output_scale = torch.nn.Parameter(output_scale)
+            elif output_scale > self.output_scale:
+                self.output_scale = torch.nn.Parameter(output_scale)
+            output = qoutput.to(output.dtype) * output_scale
+
         return output
 
 
+# Module responsible for representing the final checkpoint representation
 class FP8StaticLinear(torch.nn.Module):
     def __init__(
         self,
-        qweight: torch.Tensor,
-        weight_scale: torch.Tensor,
-        bias: torch.Tensor,
-        input_scale: float = 1.0,
+        qweight: torch.nn.Parameter,
+        weight_scale: torch.nn.Parameter,
+        bias: torch.nn.Parameter,
+        input_scale: torch.nn.Parameter,
+        output_scale: Optional[torch.nn.Parameter] = None,
     ):
         super().__init__()
-        self.weight = torch.nn.Parameter(qweight, requires_grad=False)
-        self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
-        self.input_scale = torch.nn.Parameter(input_scale, requires_grad=False)
+        self.qweight = qweight
+        self.weight_scale = weight_scale
         self.bias = bias
-
-    def per_tensor_quantize(
-        self, tensor: torch.Tensor, inv_scale: float
-    ) -> torch.Tensor:
-        finfo = torch.finfo(torch.float8_e4m3fn)
-        qweight = (tensor / inv_scale).clamp(min=finfo.min, max=finfo.max)
-        return qweight.to(torch.float8_e4m3fn)
+        self.input_scale = input_scale
+        self.output_scale = output_scale
 
     def forward(self, x):
-        qinput = self.per_tensor_quantize(x, inv_scale=self.input_scale)
+        qinput = static_per_tensor_quantize(x, self.input_scale)
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
-            B=self.weight,
+            B=self.qweight,
             B_scale=self.weight_scale,
             bias=self.bias,
             out_dtype=x.dtype,
         )
-        return output
 
+        if self.output_scale:
+            qoutput = static_per_tensor_quantize(output, self.output_scale)
+            output = qoutput.to(output.dtype) * self.output_scale
 
-class FP8DynamicLinear(torch.nn.Module):
-    def __init__(self, qweight: torch.Tensor, scale: torch.Tensor, bias: torch.Tensor):
-        super().__init__()
-        self.weight = torch.nn.Parameter(qweight, requires_grad=False)
-        self.weight_scale = torch.nn.Parameter(scale, requires_grad=False)
-        self.bias = bias
-
-    def forward(self, x):
-        qinput, x_scale = per_tensor_quantize(x)
-        output = fp8_gemm(
-            A=qinput,
-            A_scale=x_scale,
-            B=self.weight,
-            B_scale=self.weight_scale,
-            bias=self.bias,
-            out_dtype=x.dtype,
-        )
         return output
 
 
@@ -194,7 +226,6 @@ def replace_module(model: AutoModelForCausalLM, name: str, new_module: torch.nn.
 def quantize_weights(
     model: AutoModelForCausalLM,
     quantize_config: BaseQuantizeConfig,
-    ignored_layers: List[str] = [],
 ):
     named_modules = list(model.named_modules())
     for name, linear in tqdm.tqdm(named_modules, desc="Quantizing weights"):
@@ -203,9 +234,11 @@ def quantize_weights(
             or name in quantize_config.ignored_layers
         ):
             continue
-        quant_weight, quant_scale = per_tensor_quantize(linear.weight)
+        quant_weight, weight_scale = per_tensor_quantize(linear.weight)
         bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
-        quant_linear = FP8DynamicLinear(quant_weight, quant_scale, bias)
+        quant_linear = FP8DynamicLinear(
+            qweight=quant_weight, weight_scale=weight_scale, bias=bias
+        )
         replace_module(model, name, quant_linear)
         del linear.weight
         del linear.bias
@@ -217,7 +250,6 @@ def quantize_activations(
     model: AutoModelForCausalLM,
     quantize_config: BaseQuantizeConfig,
     calibration_tokens,
-    ignored_layers: List[str] = [],
 ):
     # Replace weight quantizer with a dynamic activation quantizer observer
     for name, dynamic_quant_linear in model.named_modules():
@@ -227,16 +259,22 @@ def quantize_activations(
         ):
             continue
         quantizer = FP8StaticLinearQuantizer(
-            dynamic_quant_linear.weight,
-            dynamic_quant_linear.weight_scale,
-            dynamic_quant_linear.bias,
+            qweight=dynamic_quant_linear.qweight,
+            weight_scale=dynamic_quant_linear.weight_scale,
+            bias=dynamic_quant_linear.bias,
+            quantize_output=(
+                hasattr(quantize_config, "kv_cache_quant_layers")
+                and name in quantize_config.kv_cache_quant_layers
+            ),
         )
         replace_module(model, name, quantizer)
         del dynamic_quant_linear
     cleanup_memory()
 
     # Pass through calibration data to measure activation scales
-    with tqdm.tqdm(total=calibration_tokens.shape[0], desc="Calibrating activation scales") as pbar:
+    with tqdm.tqdm(
+        total=calibration_tokens.shape[0], desc="Calibrating activation scales"
+    ) as pbar:
         for row_idx in range(calibration_tokens.shape[0]):
             model(calibration_tokens[row_idx].reshape(1, -1))
             cleanup_memory()
@@ -250,10 +288,11 @@ def quantize_activations(
         ):
             continue
         static_proj = FP8StaticLinear(
-            quantizer.weight,
-            quantizer.weight_scale,
-            quantizer.bias,
-            quantizer.input_scale,
+            qweight=quantizer.qweight,
+            weight_scale=quantizer.weight_scale,
+            bias=quantizer.bias,
+            input_scale=quantizer.input_scale,
+            output_scale=quantizer.output_scale,
         )
         replace_module(model, name, static_proj)
         del quantizer
@@ -264,7 +303,6 @@ def save_quantized_model(
     model: AutoModelForCausalLM,
     quant_config: BaseQuantizeConfig,
     save_dir: str,
-    ignored_layers: List[str] = [],
 ):
     print(model)
     print(f"Saving the model to {save_dir}")
@@ -275,6 +313,8 @@ def save_quantized_model(
             "ignored_layers": quant_config.ignored_layers,
         }
     }
+    if hasattr(quant_config, "kv_cache_quant_layers"):
+        static_q_dict["quantization_config"]["kv_cache_scheme"] = "static"
     model.config.update(static_q_dict)
     model.save_pretrained(save_dir)
     tokenizer = AutoTokenizer.from_pretrained(model.config._name_or_path)
