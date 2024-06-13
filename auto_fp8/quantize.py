@@ -202,11 +202,14 @@ def quantize_weights(
             or name in quantize_config.ignored_layers
         ):
             continue
-        quant_weight, quant_scale = per_tensor_quantize(linear.weight)
-        quant_linear = FP8DynamicLinear(quant_weight, quant_scale, linear.bias)
+        quant_weight, quant_scale = per_tensor_quantize(linear.weight.clone())
+        bias = linear.bias.clone() if linear.bias is not None else None
+        quant_linear = FP8DynamicLinear(quant_weight, quant_scale, bias)
         replace_module(model, name, quant_linear)
+        del linear.weight
+        del linear.bias
         del linear
-        cleanup_memory()
+    cleanup_memory()
 
 
 def quantize_activations(
