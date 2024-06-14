@@ -110,12 +110,12 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
 class FP8DynamicLinear(torch.nn.Module):
     def __init__(
         self,
-        qweight: torch.Tensor,
+        weight: torch.Tensor,
         weight_scale: torch.Tensor,
         bias: torch.nn.Parameter,
     ):
         super().__init__()
-        self.qweight = torch.nn.Parameter(qweight, requires_grad=False)
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
         self.bias = bias
 
@@ -124,7 +124,7 @@ class FP8DynamicLinear(torch.nn.Module):
         output = fp8_gemm(
             A=qinput,
             A_scale=x_scale,
-            B=self.qweight,
+            B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
             out_dtype=x.dtype,
@@ -136,13 +136,13 @@ class FP8DynamicLinear(torch.nn.Module):
 class FP8StaticLinearQuantizer(torch.nn.Module):
     def __init__(
         self,
-        qweight: torch.Tensor,
+        weight: torch.Tensor,
         weight_scale: torch.Tensor,
         bias: torch.nn.Parameter,
         quantize_output: bool = False,
     ):
         super().__init__()
-        self.qweight = torch.nn.Parameter(qweight, requires_grad=False)
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
         self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
         self.bias = bias
         self.input_scale = None
@@ -158,7 +158,7 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
-            B=self.qweight,
+            B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
             out_dtype=x.dtype,
@@ -180,14 +180,14 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
 class FP8StaticLinear(torch.nn.Module):
     def __init__(
         self,
-        qweight: torch.nn.Parameter,
+        weight: torch.nn.Parameter,
         weight_scale: torch.nn.Parameter,
         bias: torch.nn.Parameter,
         input_scale: torch.nn.Parameter,
         output_scale: Optional[torch.nn.Parameter] = None,
     ):
         super().__init__()
-        self.qweight = qweight
+        self.weight = weight
         self.weight_scale = weight_scale
         self.bias = bias
         self.input_scale = input_scale
@@ -198,7 +198,7 @@ class FP8StaticLinear(torch.nn.Module):
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
-            B=self.qweight,
+            B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
             out_dtype=x.dtype,
@@ -237,7 +237,7 @@ def quantize_weights(
         quant_weight, weight_scale = per_tensor_quantize(linear.weight)
         bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
         quant_linear = FP8DynamicLinear(
-            qweight=quant_weight, weight_scale=weight_scale, bias=bias
+            weight=quant_weight, weight_scale=weight_scale, bias=bias
         )
         replace_module(model, name, quant_linear)
         del linear.weight
@@ -259,7 +259,7 @@ def quantize_activations(
         ):
             continue
         quantizer = FP8StaticLinearQuantizer(
-            qweight=dynamic_quant_linear.qweight,
+            weight=dynamic_quant_linear.weight,
             weight_scale=dynamic_quant_linear.weight_scale,
             bias=dynamic_quant_linear.bias,
             quantize_output=(
@@ -288,7 +288,7 @@ def quantize_activations(
         ):
             continue
         static_proj = FP8StaticLinear(
-            qweight=quantizer.qweight,
+            weight=quantizer.weight,
             weight_scale=quantizer.weight_scale,
             bias=quantizer.bias,
             input_scale=quantizer.input_scale,
