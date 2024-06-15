@@ -1,15 +1,20 @@
 import os
 import shutil
 
+import pytest
 import safetensors.torch
 from transformers import AutoTokenizer
 
 from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 
+MODELS = [
+    "facebook/opt-125m",
+    "Qwen/Qwen2-0.5B-Instruct",
+]
 
-def test_dynamic_quantization():
-    model_id = "facebook/opt-125m"
-    quantized_model_dir = "opt-125m-fp8-dynamic"
+@pytest.mark.parametrize("model_id", MODELS)
+def test_dynamic_quantization(model_id):
+    quantized_model_dir = model_id.split("/")[-1] + "-fp8-dynamic"
 
     quantize_config = BaseQuantizeConfig(
         quant_method="fp8", activation_scheme="dynamic"
@@ -30,9 +35,9 @@ def test_dynamic_quantization():
     assert model_size < target_size
 
 
-def test_static_quantization():
-    model_id = "facebook/opt-125m"
-    quantized_model_dir = "opt-125m-fp8-static"
+@pytest.mark.parametrize("model_id", MODELS)
+def test_static_quantization(model_id):
+    quantized_model_dir = model_id.split("/")[-1] + "-fp8-static"
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     examples = ["auto-fp8 is an easy-to-use model quantization library"]
@@ -54,10 +59,9 @@ def test_static_quantization():
     target_size = 160 * (1024 * 1024)
     assert model_size < target_size
 
-
-def test_kv_cache_static_quantization():
-    model_id = "facebook/opt-125m"
-    quantized_model_dir = "opt-125m-fp8-static-kv"
+@pytest.mark.parametrize("model_id", MODELS)
+def test_kv_cache_static_quantization(model_id):
+    quantized_model_dir = model_id.split("/")[-1] + "-fp8-static-kv"
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     examples = ["auto-fp8 is an easy-to-use model quantization library"]

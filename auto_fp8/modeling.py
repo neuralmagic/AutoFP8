@@ -108,10 +108,6 @@ class AutoFP8ForCausalLM:
         return cls(model, quantize_config)
 
     def quantize(self, calibration_tokens: Optional[torch.Tensor] = None):
-        def _prepare_calibration_data(calibration_tokens):
-            if hasattr(calibration_tokens, "input_ids"):
-                return calibration_tokens.input_ids
-            return calibration_tokens
 
         # Always quantize the weights as they do not require calibration data
         quantize_weights(self.model, self.quantize_config)
@@ -120,15 +116,18 @@ class AutoFP8ForCausalLM:
             assert (
                 calibration_tokens is not None
             ), "Calibration tokens required for activation quantization"
+
+
+            def _prepare_calibration_data(calibration_tokens):
+                if hasattr(calibration_tokens, "input_ids"):
+                    return calibration_tokens.input_ids
+                return calibration_tokens
+
             quantize_activations(
                 self.model,
                 self.quantize_config,
                 _prepare_calibration_data(calibration_tokens),
             )
-
-            # import copy
-            # for layer in self.model.model.layers:
-            #     layer.self_attn.kv_scale = copy.deepcopy(layer.self_attn.k_proj.input_scale)
 
     def save_quantized(self, save_dir):
         save_quantized_model(
