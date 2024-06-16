@@ -8,12 +8,12 @@ from transformers import AutoTokenizer
 from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 
 MODELS = [
-    "facebook/opt-125m",
-    "Qwen/Qwen2-0.5B-Instruct",
+    ("facebook/opt-125m", 160),
+    ("Qwen/Qwen2-0.5B-Instruct", 600),
 ]
 
-@pytest.mark.parametrize("model_id", MODELS)
-def test_dynamic_quantization(model_id):
+@pytest.mark.parametrize("model_id,target_size", MODELS)
+def test_dynamic_quantization(model_id, target_size):
     quantized_model_dir = model_id.split("/")[-1] + "-fp8-dynamic"
 
     quantize_config = BaseQuantizeConfig(
@@ -30,13 +30,13 @@ def test_dynamic_quantization(model_id):
     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
     shutil.rmtree(quantized_model_dir)
 
-    # We expect the model to be < 160MB
-    target_size = 160 * (1024 * 1024)
+    # We expect the model to be a certain size
+    target_size = target_size * (1024 * 1024)
     assert model_size < target_size
 
 
-@pytest.mark.parametrize("model_id", MODELS)
-def test_static_quantization(model_id):
+@pytest.mark.parametrize("model_id,target_size", MODELS)
+def test_static_quantization(model_id, target_size):
     quantized_model_dir = model_id.split("/")[-1] + "-fp8-static"
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
@@ -56,11 +56,11 @@ def test_static_quantization(model_id):
     shutil.rmtree(quantized_model_dir)
 
     # We expect the model to be < 160MB
-    target_size = 160 * (1024 * 1024)
+    target_size = target_size * (1024 * 1024)
     assert model_size < target_size
 
-@pytest.mark.parametrize("model_id", MODELS)
-def test_kv_cache_static_quantization(model_id):
+@pytest.mark.parametrize("model_id,target_size", MODELS)
+def test_kv_cache_static_quantization(model_id, target_size):
     quantized_model_dir = model_id.split("/")[-1] + "-fp8-static-kv"
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
@@ -94,5 +94,5 @@ def test_kv_cache_static_quantization(model_id):
     shutil.rmtree(quantized_model_dir)
 
     # We expect the model to be < 160MB
-    target_size = 160 * (1024 * 1024)
+    target_size = target_size * (1024 * 1024)
     assert model_size < target_size
