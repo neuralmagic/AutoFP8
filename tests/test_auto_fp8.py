@@ -80,11 +80,14 @@ def test_kv_cache_static_quantization(model_id):
     model.save_quantized(quantized_model_dir)
 
     tensors = safetensors.torch.load_file(f"{quantized_model_dir}/model.safetensors")
-    count_matches = 0
-    for name, tensor in tensors.items():
+    proj_linear_count = 0
+    output_scale_count = 0
+    for name, _ in tensors.items():
+        if name.endswith("k_proj") or name.endswith("v_proj"):
+            proj_linear_count += 1
         if name.endswith("k_proj.output_scale") or name.endswith("v_proj.output_scale"):
-            count_matches += 1
-    assert count_matches == 24
+            output_scale_count += 1
+    assert proj_linear_count == output_scale_count
 
     # Measure checkpoint size and cleanup
     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
