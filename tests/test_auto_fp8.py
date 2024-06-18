@@ -30,7 +30,7 @@ def test_dynamic_quantization(model_id, target_size):
     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
     shutil.rmtree(quantized_model_dir)
 
-    # We expect the model to be a certain size
+    # We expect the quantized model to be a certain size
     target_size = target_size * (1024 * 1024)
     assert model_size < target_size
 
@@ -55,7 +55,7 @@ def test_static_quantization(model_id, target_size):
     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
     shutil.rmtree(quantized_model_dir)
 
-    # We expect the model to be < 160MB
+    # We expect the quantized model to be a certain size
     target_size = target_size * (1024 * 1024)
     assert model_size < target_size
 
@@ -81,18 +81,18 @@ def test_kv_cache_static_quantization(model_id, target_size):
 
     tensors = safetensors.torch.load_file(f"{quantized_model_dir}/model.safetensors")
     proj_linear_count = 0
-    output_scale_count = 0
+    kv_scale_count = 0
     for name, _ in tensors.items():
         if name.endswith("k_proj.weight") or name.endswith("v_proj.weight"):
             proj_linear_count += 1
-        if name.endswith("k_proj.output_scale") or name.endswith("v_proj.output_scale"):
-            output_scale_count += 1
-    assert proj_linear_count == output_scale_count
+        if name.endswith("kv_scale"):
+            kv_scale_count += 1
+    assert proj_linear_count // 2 == kv_scale_count
 
     # Measure checkpoint size and cleanup
     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
     shutil.rmtree(quantized_model_dir)
 
-    # We expect the model to be < 160MB
+    # We expect the quantized model to be a certain size
     target_size = target_size * (1024 * 1024)
     assert model_size < target_size

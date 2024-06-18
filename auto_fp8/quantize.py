@@ -152,9 +152,9 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
     def forward(self, x):
         qinput, x_input_scale = per_tensor_quantize(x)
         if self.input_scale is None:
-            self.input_scale = torch.nn.Parameter(x_input_scale)
+            self.input_scale = torch.nn.Parameter(x_input_scale, requires_grad=False)
         elif x_input_scale > self.input_scale:
-            self.input_scale = torch.nn.Parameter(x_input_scale)
+            self.input_scale = torch.nn.Parameter(x_input_scale, requires_grad=False)
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
@@ -168,9 +168,9 @@ class FP8StaticLinearQuantizer(torch.nn.Module):
         if self.quantize_output:
             qoutput, output_scale = per_tensor_quantize(output)
             if self.output_scale is None:
-                self.output_scale = torch.nn.Parameter(output_scale)
+                self.output_scale = torch.nn.Parameter(output_scale, requires_grad=False)
             elif output_scale > self.output_scale:
-                self.output_scale = torch.nn.Parameter(output_scale)
+                self.output_scale = torch.nn.Parameter(output_scale, requires_grad=False)
             output = qoutput.to(output.dtype) * output_scale
 
         return output
@@ -295,6 +295,30 @@ def quantize_activations(
         )
         replace_module(model, name, static_proj)
         del quantizer
+    cleanup_memory()
+
+    # Post-process step for kv cache scales to take the k/v module
+    # `output_scale` parameters, take the max of them, and store them in
+    # the parent attention module as `kv_scale`
+    # NOTE: if we want to switch to the `output_scale` representation, we can simply remove this block
+    if hasattr(quantize_config, "kv_cache_quant_layers"):
+        # Assumes that list is ordered such that [layer0.k_proj, layer0.v_proj, layer1.k_proj, layer1.v_proj, ...]
+        # so we make a list of tuples [(layer0.k_proj, layer0.v_proj), (layer1.k_proj, layer1.v_proj), ...]
+        kv_proj_pairs = zip(*[iter(quantize_config.kv_cache_quant_layers)]*2)
+        for k_proj_name, v_proj_name in kv_proj_pairs:
+            parent_module_name = ".".join(k_proj_name.split(".")[:-1])
+            assert parent_module_name == ".".join(v_proj_name.split(".")[:-1])
+            parent_module = dict(model.named_modules())[parent_module_name]
+
+            k_proj = dict(model.named_modules())[k_proj_name]
+            v_proj = dict(model.named_modules())[v_proj_name]
+
+            kv_scale = max(k_proj.output_scale, v_proj.output_scale)
+            parent_module.kv_scale = torch.nn.Parameter(kv_scale, requires_grad=False)
+
+            # Remove output_scale from k_proj and v_proj
+            k_proj.output_scale = None
+            v_proj.output_scale = None
     cleanup_memory()
 
 

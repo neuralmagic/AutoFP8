@@ -28,7 +28,7 @@ class AutoFP8ForCausalLM:
         )
 
         if quantize_config.kv_cache_quant_targets:
-            kv_cache_quant_layers = get_kv_cache_quant_layer(
+            kv_cache_quant_layers = get_kv_cache_quant_layers(
                 self.model, quantize_config.kv_cache_quant_targets
             )
             if len(kv_cache_quant_layers) == 0:
@@ -159,8 +159,8 @@ def get_layers_to_ignore(model, ignore_patterns) -> List[str]:
     return list(ignored_layers)
 
 
-def get_kv_cache_quant_layer(model, kv_cache_quant_targets: Tuple[str]) -> List[str]:
-    kv_cache_quant_layers = set()
+def get_kv_cache_quant_layers(model, kv_cache_quant_targets: Tuple[str]) -> List[str]:
+    kv_cache_quant_layers = []
 
     for name, linear in model.named_modules():
         if not isinstance(linear, torch.nn.Linear):
@@ -168,6 +168,6 @@ def get_kv_cache_quant_layer(model, kv_cache_quant_targets: Tuple[str]) -> List[
 
         for output_quant_target in kv_cache_quant_targets:
             if name.endswith(output_quant_target):
-                kv_cache_quant_layers.add(name)
+                kv_cache_quant_layers.append(name)
 
-    return list(kv_cache_quant_layers)
+    return kv_cache_quant_layers
