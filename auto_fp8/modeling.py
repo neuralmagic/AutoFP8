@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Tuple
+from typing import List
 
 import torch
 from transformers import AutoModelForCausalLM
@@ -26,16 +26,6 @@ class AutoFP8ForCausalLM:
         quantize_config.ignored_layers = get_layers_to_ignore(
             self.model, quantize_config.ignore_patterns
         )
-
-        if quantize_config.kv_cache_quant_targets:
-            kv_cache_quant_layers = get_kv_cache_quant_layers(
-                self.model, quantize_config.kv_cache_quant_targets
-            )
-            if len(kv_cache_quant_layers) == 0:
-                raise ValueError(
-                    f"Could not find any kv cache layers using kv_cache_quant_targets={quantize_config.kv_cache_quant_targets}, please fix your argument."
-                )
-            quantize_config.kv_cache_quant_layers = kv_cache_quant_layers
 
         self.quantize_config = quantize_config
 
@@ -107,27 +97,25 @@ class AutoFP8ForCausalLM:
 
         return cls(model, quantize_config)
 
-    def quantize(self, calibration_tokens: Optional[torch.Tensor] = None):
+    def quantize(self, calibration_tokens):
+        def _prepare_calibration_data(calibration_tokens):
+            if hasattr(calibration_tokens, "input_ids"):
+                return calibration_tokens.input_ids
+            return calibration_tokens
 
         # Always quantize the weights as they do not require calibration data
         quantize_weights(self.model, self.quantize_config)
 
         if self.quantize_config.activation_scheme == "static":
-            assert (
-                calibration_tokens is not None
-            ), "Calibration tokens required for activation quantization"
-
-
-            def _prepare_calibration_data(calibration_tokens):
-                if hasattr(calibration_tokens, "input_ids"):
-                    return calibration_tokens.input_ids
-                return calibration_tokens
-
             quantize_activations(
                 self.model,
                 self.quantize_config,
                 _prepare_calibration_data(calibration_tokens),
             )
+
+            # import copy
+            # for layer in self.model.model.layers:
+            #     layer.self_attn.kv_scale = copy.deepcopy(layer.self_attn.k_proj.input_scale)
 
     def save_quantized(self, save_dir):
         save_quantized_model(
@@ -139,6 +127,9 @@ class AutoFP8ForCausalLM:
 
 def get_layers_to_ignore(model, ignore_patterns) -> List[str]:
     ignored_layers = set()
+
+    # TODO: don't always ignore lm_head
+    ignore_patterns.append("re:.*lm_head")
 
     for name, linear in model.named_modules():
         if not isinstance(linear, torch.nn.Linear):
@@ -157,17 +148,3 @@ def get_layers_to_ignore(model, ignore_patterns) -> List[str]:
                     ignored_layers.add(name)
 
     return list(ignored_layers)
-
-
-def get_kv_cache_quant_layers(model, kv_cache_quant_targets: Tuple[str]) -> List[str]:
-    kv_cache_quant_layers = []
-
-    for name, linear in model.named_modules():
-        if not isinstance(linear, torch.nn.Linear):
-            continue
-
-        for output_quant_target in kv_cache_quant_targets:
-            if name.endswith(output_quant_target):
-                kv_cache_quant_layers.append(name)
-
-    return kv_cache_quant_layers
