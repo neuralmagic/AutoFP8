@@ -9,7 +9,7 @@ quantized_model_dir = "Mixtral-8x7B-Instruct-v0.1-FP8"
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_dir, use_fast=True)
 tokenizer.pad_token = tokenizer.eos_token
 
-ds = load_dataset("mgoin/ultrachat_2k", split="train_sft").select(range(10))
+ds = load_dataset("mgoin/ultrachat_2k", split="train_sft")
 examples = [tokenizer.apply_chat_template(batch["messages"], tokenize=False) for batch in ds]
 examples = tokenizer(examples, padding=True, truncation=True, return_tensors="pt").to("cuda")
 
