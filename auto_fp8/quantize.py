@@ -299,7 +299,7 @@ def quantize_activations(
 
     # Post-process step for kv cache scales to take the k/v module
     # `output_scale` parameters, and store them in the parent attention
-    # module as `key_scale` and `value_scale`
+    # module as `k_scale` and `v_scale`
     if hasattr(quantize_config, "kv_cache_quant_layers"):
         # Assumes that list is ordered such that [layer0.k_proj, layer0.v_proj, layer1.k_proj, layer1.v_proj, ...]
         # so we make a list of tuples [(layer0.k_proj, layer0.v_proj), (layer1.k_proj, layer1.v_proj), ...]
@@ -312,8 +312,8 @@ def quantize_activations(
             k_proj = dict(model.named_modules())[k_proj_name]
             v_proj = dict(model.named_modules())[v_proj_name]
 
-            parent_module.key_scale = torch.nn.Parameter(k_proj.output_scale, requires_grad=False)
-            parent_module.value_scale = torch.nn.Parameter(v_proj.output_scale, requires_grad=False)
+            parent_module.k_scale = torch.nn.Parameter(k_proj.output_scale, requires_grad=False)
+            parent_module.v_scale = torch.nn.Parameter(v_proj.output_scale, requires_grad=False)
 
             # Remove output_scale from k_proj and v_proj
             k_proj.output_scale = None
