@@ -72,11 +72,25 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
         # Deal with empty tensors (triggeted by empty MoE experts)
         return torch.empty(size=(0, B.shape[0]), dtype=out_dtype, device=A.device)
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 959bdbc (Add comment)
     # TODO: Disable native fp8 gemm for now, always just dequantize
     # native_fp8_support = (
     #     torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
     # )
     native_fp8_support = False
+<<<<<<< HEAD
+=======
+    native_fp8_support = (
+        torch.cuda.is_available()
+        and torch.cuda.get_device_capability() >= (8, 9)
+        and False
+    )
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+=======
+>>>>>>> 959bdbc (Add comment)
     if native_fp8_support:
         need_reshape = A.dim() == 3
         if need_reshape:
@@ -108,6 +122,25 @@ def fp8_gemm(A, A_scale, B, B_scale, bias, out_dtype):
 
 # Class responsible for quantizing weights
 class FP8DynamicLinear(torch.nn.Module):
+<<<<<<< HEAD
+    def __init__(
+        self,
+        weight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: torch.nn.Parameter,
+    ):
+        super().__init__()
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
+        self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
+        self.bias = bias
+
+    def forward(self, x):
+        qinput, x_scale = per_tensor_quantize(x)
+        output = fp8_gemm(
+            A=qinput,
+            A_scale=x_scale,
+            B=self.weight,
+=======
     def __init__(
         self,
         weight: torch.Tensor,
@@ -198,6 +231,92 @@ class FP8StaticLinear(torch.nn.Module):
         output = fp8_gemm(
             A=qinput,
             A_scale=self.input_scale,
+<<<<<<< HEAD
+            B=self.qweight,
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+            B_scale=self.weight_scale,
+            bias=self.bias,
+            out_dtype=x.dtype,
+        )
+<<<<<<< HEAD
+=======
+
+        if self.output_scale:
+            qoutput = static_per_tensor_quantize(output, self.output_scale)
+            output = qoutput.to(output.dtype) * self.output_scale
+
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+        return output
+
+
+# Module responsible for taking already quantized weights, and recording input scales (and possibly output scales) using an activation observer
+class FP8StaticLinearQuantizer(torch.nn.Module):
+    def __init__(
+        self,
+        weight: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: torch.nn.Parameter,
+        quantize_output: bool = False,
+    ):
+        super().__init__()
+        self.weight = torch.nn.Parameter(weight, requires_grad=False)
+        self.weight_scale = torch.nn.Parameter(weight_scale, requires_grad=False)
+        self.bias = bias
+        self.input_scale = None
+        self.output_scale = None
+        self.quantize_output = quantize_output
+
+    def forward(self, x):
+        qinput, x_input_scale = per_tensor_quantize(x)
+        if self.input_scale is None:
+            self.input_scale = torch.nn.Parameter(x_input_scale, requires_grad=False)
+        elif x_input_scale > self.input_scale:
+            self.input_scale = torch.nn.Parameter(x_input_scale, requires_grad=False)
+        output = fp8_gemm(
+            A=qinput,
+            A_scale=self.input_scale,
+            B=self.weight,
+            B_scale=self.weight_scale,
+            bias=self.bias,
+            out_dtype=x.dtype,
+        )
+
+        # Optionally, quantize output and record scale
+        if self.quantize_output:
+            qoutput, output_scale = per_tensor_quantize(output)
+            if self.output_scale is None:
+                self.output_scale = torch.nn.Parameter(output_scale, requires_grad=False)
+            elif output_scale > self.output_scale:
+                self.output_scale = torch.nn.Parameter(output_scale, requires_grad=False)
+            output = qoutput.to(output.dtype) * output_scale
+
+        return output
+
+
+# Module responsible for representing the final checkpoint representation
+class FP8StaticLinear(torch.nn.Module):
+    def __init__(
+        self,
+        weight: torch.nn.Parameter,
+        weight_scale: torch.nn.Parameter,
+        bias: torch.nn.Parameter,
+        input_scale: torch.nn.Parameter,
+        output_scale: Optional[torch.nn.Parameter] = None,
+    ):
+        super().__init__()
+        self.weight = weight
+        self.weight_scale = weight_scale
+        self.bias = bias
+        self.input_scale = input_scale
+        self.output_scale = output_scale
+
+    def forward(self, x):
+        qinput = static_per_tensor_quantize(x, self.input_scale)
+        output = fp8_gemm(
+            A=qinput,
+            A_scale=self.input_scale,
+=======
+>>>>>>> def2049 (Fix weight name)
             B=self.weight,
             B_scale=self.weight_scale,
             bias=self.bias,
@@ -237,7 +356,15 @@ def quantize_weights(
         quant_weight, weight_scale = per_tensor_quantize(linear.weight)
         bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
         quant_linear = FP8DynamicLinear(
+<<<<<<< HEAD
+<<<<<<< HEAD
             weight=quant_weight, weight_scale=weight_scale, bias=bias
+=======
+            qweight=quant_weight, weight_scale=weight_scale, bias=bias
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+=======
+            weight=quant_weight, weight_scale=weight_scale, bias=bias
+>>>>>>> def2049 (Fix weight name)
         )
         replace_module(model, name, quant_linear)
         del linear.weight
@@ -259,7 +386,15 @@ def quantize_activations(
         ):
             continue
         quantizer = FP8StaticLinearQuantizer(
+<<<<<<< HEAD
+<<<<<<< HEAD
             weight=dynamic_quant_linear.weight,
+=======
+            qweight=dynamic_quant_linear.qweight,
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+=======
+            weight=dynamic_quant_linear.weight,
+>>>>>>> def2049 (Fix weight name)
             weight_scale=dynamic_quant_linear.weight_scale,
             bias=dynamic_quant_linear.bias,
             quantize_output=(
@@ -272,12 +407,36 @@ def quantize_activations(
     cleanup_memory()
 
     # Pass through calibration data to measure activation scales
+<<<<<<< HEAD
+<<<<<<< HEAD
     with torch.inference_mode():
         with tqdm.tqdm(total=calibration_tokens.shape[0], desc="Calibrating activation scales") as pbar:
             for row_idx in range(calibration_tokens.shape[0]):
                 model(calibration_tokens[row_idx].reshape(1, -1))
                 cleanup_memory()
                 pbar.update(1)
+=======
+=======
+>>>>>>> 57c31bb (Use `torch.inference_mode()` for lower memory usage during calibration (#20))
+    with tqdm.tqdm(
+        total=calibration_tokens.shape[0], desc="Calibrating activation scales"
+    ) as pbar:
+        for row_idx in range(calibration_tokens.shape[0]):
+            model(calibration_tokens[row_idx].reshape(1, -1))
+            cleanup_memory()
+            pbar.update(1)
+<<<<<<< HEAD
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+=======
+=======
+    with torch.inference_mode():
+        with tqdm.tqdm(total=calibration_tokens.shape[0], desc="Calibrating activation scales") as pbar:
+            for row_idx in range(calibration_tokens.shape[0]):
+                model(calibration_tokens[row_idx].reshape(1, -1))
+                cleanup_memory()
+                pbar.update(1)
+>>>>>>> b1c6ad6 (Use `torch.inference_mode()` for lower memory usage during calibration (#20))
+>>>>>>> 57c31bb (Use `torch.inference_mode()` for lower memory usage during calibration (#20))
 
     # Replace dynamic quantizer observer with StaticLinear for export
     for name, quantizer in model.named_modules():
@@ -287,7 +446,15 @@ def quantize_activations(
         ):
             continue
         static_proj = FP8StaticLinear(
+<<<<<<< HEAD
+<<<<<<< HEAD
             weight=quantizer.weight,
+=======
+            qweight=quantizer.qweight,
+>>>>>>> 3ee9283 (Support calibrating kv cache scales)
+=======
+            weight=quantizer.weight,
+>>>>>>> def2049 (Fix weight name)
             weight_scale=quantizer.weight_scale,
             bias=quantizer.bias,
             input_scale=quantizer.input_scale,
