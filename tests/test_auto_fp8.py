@@ -56,8 +56,6 @@ def test_static_quantization(model_id, target_size):
     quantize_config = BaseQuantizeConfig(quant_method="fp8", activation_scheme="static")
 
     model = AutoFP8ForCausalLM.from_pretrained(model_id, quantize_config)
-    model.model.to("cpu")
-
     model.quantize(ds)
     model.save_quantized(quantized_model_dir)
 
