@@ -79,6 +79,7 @@ class AutoFP8ForCausalLM:
             model=self.model,
             dataset=dataset,
             recipe=recipe,
+            num_calibration_samples=dataset.shape[0],
         )
 
     def save_quantized(self, save_directory: str):
