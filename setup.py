@@ -16,6 +16,7 @@ setup(
         "datasets",
         "accelerate",
         "tqdm",
+        "llmcompressor @ git+https://github.com/vllm-project/llm-compressor.git"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

@@ -3,3 +3,4 @@ transformers
 datasets
 accelerate
 tqdm
+llmcompressor @ git+https://github.com/vllm-project/llm-compressor.git

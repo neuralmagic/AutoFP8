@@ -1,5 +1,4 @@
-from .config import BaseQuantizeConfig
-from .modeling import AutoFP8ForCausalLM
+from .modeling import AutoFP8ForCausalLM, BaseQuantizeConfig
 
 __all__ = [
     "AutoFP8ForCausalLM",
