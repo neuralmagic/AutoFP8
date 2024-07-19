@@ -6,6 +6,12 @@ from datasets import Dataset
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationType,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 
 
 class BaseQuantizeConfig:
@@ -64,23 +70,75 @@ class AutoFP8ForCausalLM:
         return cls(model, quantize_config)
 
     def quantize(self, dataset: Optional[Dataset] = None):
-        assert (
-            self.quantize_config.activation_scheme == "static"
-        ), "Dynamic isn't supported yet"
-        assert (
-            dataset is not None
-        ), "Calibration tokens required for static activation quantization"
+        if self.quantize_config.activation_scheme == "dynamic":
+            if dataset is None:
+                # For dynamic activations, we don't care about calibration data
+                # being provided. However, we need to pass something
+                # TODO(mgoin): Remove once llmcompressor allows no dataset
+                from datasets import load_dataset
+                dataset = load_dataset("openai/openai_humaneval", split="test").select(range(1))
+                dataset = dataset.rename_column("prompt", "text")
 
-        recipe = QuantizationModifier(
-            targets="Linear", scheme="FP8", ignore=self.quantize_config.ignore_patterns
-        )
+            FP8_W8 = QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    num_bits=8,
+                    type=QuantizationType.FLOAT,
+                    strategy=QuantizationStrategy.TENSOR,
+                    symmetric=True,
+                    dynamic=False,
+                ),
+            )
 
-        oneshot(
-            model=self.model,
-            dataset=dataset,
-            recipe=recipe,
-            num_calibration_samples=dataset.shape[0],
-        )
+            recipe = QuantizationModifier(
+                config_groups={"group_0": FP8_W8},
+                ignore=self.quantize_config.ignore_patterns,
+            )
+
+            oneshot(
+                model=self.model,
+                dataset=dataset,
+                recipe=recipe,
+                num_calibration_samples=dataset.shape[0],
+            )
+        elif self.quantize_config.activation_scheme == "static":
+            assert (
+                dataset is not None
+            ), "Calibration tokens required for static activation quantization"
+
+            FP8_W8A8 = QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    num_bits=8,
+                    type=QuantizationType.FLOAT,
+                    strategy=QuantizationStrategy.TENSOR,
+                    symmetric=True,
+                    dynamic=False,
+                ),
+                input_activations=QuantizationArgs(
+                    num_bits=8,
+                    type=QuantizationType.FLOAT,
+                    strategy=QuantizationStrategy.TENSOR,
+                    symmetric=True,
+                    dynamic=False,
+                ),
+            )
+
+            recipe = QuantizationModifier(
+                config_groups={"group_0": FP8_W8A8},
+                ignore=self.quantize_config.ignore_patterns,
+            )
+
+            oneshot(
+                model=self.model,
+                dataset=dataset,
+                recipe=recipe,
+                num_calibration_samples=dataset.shape[0],
+            )
+        else:
+            raise ValueError(
+                f"Unsupported activation_scheme={self.quantize_config.activation_scheme}"
+            )
 
     def save_quantized(self, save_directory: str):
         self.save_pretrained(save_directory, save_compressed=True)

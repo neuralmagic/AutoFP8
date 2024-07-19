@@ -10,30 +10,28 @@ from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 
 MODELS = [
     ("facebook/opt-125m", 160),
-    ("Qwen/Qwen2-0.5B-Instruct", 620),
+    # ("Qwen/Qwen2-0.5B-Instruct", 620),
 ]
 
-# @pytest.mark.parametrize("model_id,target_size", MODELS)
-# def test_dynamic_quantization(model_id, target_size):
-#     quantized_model_dir = model_id.split("/")[-1] + "-fp8-dynamic"
+@pytest.mark.parametrize("model_id,target_size", MODELS)
+def test_dynamic_quantization(model_id, target_size):
+    quantized_model_dir = model_id.split("/")[-1] + "-fp8-dynamic"
 
-#     quantize_config = BaseQuantizeConfig(
-#         quant_method="fp8", activation_scheme="dynamic"
-#     )
+    quantize_config = BaseQuantizeConfig(
+        quant_method="fp8", activation_scheme="dynamic"
+    )
 
-#     model = AutoFP8ForCausalLM.from_pretrained(model_id, quantize_config)
-#     model.model.to("cpu")
+    model = AutoFP8ForCausalLM.from_pretrained(model_id, quantize_config)
+    model.quantize()
+    model.save_quantized(quantized_model_dir)
 
-#     model.quantize()
-#     model.save_quantized(quantized_model_dir)
+    # Measure checkpoint size and cleanup
+    model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
+    shutil.rmtree(quantized_model_dir)
 
-#     # Measure checkpoint size and cleanup
-#     model_size = os.path.getsize(f"{quantized_model_dir}/model.safetensors")
-#     shutil.rmtree(quantized_model_dir)
-
-#     # We expect the quantized model to be a certain size
-#     target_size = target_size * (1024 * 1024)
-#     assert model_size < target_size
+    # We expect the quantized model to be a certain size
+    target_size = target_size * (1024 * 1024)
+    assert model_size < target_size
 
 
 @pytest.mark.parametrize("model_id,target_size", MODELS)
