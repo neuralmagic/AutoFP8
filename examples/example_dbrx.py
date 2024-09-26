@@ -3,8 +3,8 @@ from transformers import AutoTokenizer
 
 from auto_fp8 import AutoFP8ForCausalLM, BaseQuantizeConfig
 
-pretrained_model_dir = "/models/databrix/"
-quantized_model_dir = "./output"
+pretrained_model_dir = "databricks/dbrx-instruct"
+quantized_model_dir = "dbrx-instruct-fp8"
 
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_dir, use_fast=True)
 tokenizer.pad_token = tokenizer.eos_token
