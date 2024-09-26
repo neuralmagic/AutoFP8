@@ -153,19 +153,23 @@ class FP8DbrxExpertGLU(torch.nn.Module):
         self.v1_weight = torch.nn.Parameter(self.v1, requires_grad=False)
         self.w2_weight = torch.nn.Parameter(self.w2, requires_grad=False)
         
-        self.w1_input_scale = torch.nn.Parameter(self.w1_input_scale, requires_grad=False)
-        self.v1_input_scale = torch.nn.Parameter(self.v1_input_scale, requires_grad=False)
-        self.w2_input_scale = torch.nn.Parameter(self.w2_input_scale, requires_grad=False)
-        
         self.w1_weight_scale = torch.nn.Parameter(self.w1_weight_scale, requires_grad=False)
         self.v1_weight_scale = torch.nn.Parameter(self.v1_weight_scale, requires_grad=False)
         self.w2_weight_scale = torch.nn.Parameter(self.w2_weight_scale, requires_grad=False)
+        
+    # For static scheme
+    def register_input_scale(self):
+
+        self.w1_input_scale = torch.nn.Parameter(self.w1_input_scale, requires_grad=False)
+        self.v1_input_scale = torch.nn.Parameter(self.v1_input_scale, requires_grad=False)
+        self.w2_input_scale = torch.nn.Parameter(self.w2_input_scale, requires_grad=False)
 
     def forward(self, 
                 x: torch.Tensor,
                 expert_w1: torch.Tensor,
                 expert_v1: torch.Tensor,
                 expert_w2: torch.Tensor):
+
         qinput, x_scale = per_tensor_quantize(x)
         self.w1_input_scale[self.cnt] = max(self.w1_input_scale[self.cnt], x_scale)
         self.v1_input_scale[self.cnt] = max(self.v1_input_scale[self.cnt], x_scale)
@@ -343,6 +347,9 @@ def quantize_activations(
 ):
     # Replace weight quantizer with a dynamic activation quantizer observer
     for name, dynamic_quant_linear in model.named_modules():
+        if isinstance(dynamic_quant_linear, FP8DbrxExpertGLU):
+            dynamic_quant_linear.register_input_scale()
+            continue
         if (
             not isinstance(dynamic_quant_linear, FP8DynamicLinear)
             or name in quantize_config.ignored_layers
