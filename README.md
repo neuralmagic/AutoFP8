@@ -2,6 +2,9 @@
 
 **ATTENTION: AutoFP8 has been deprecated in preference of [`llm-compressor`](https://github.com/vllm-project/llm-compressor), a library for producing all sorts of model compression in addition to FP8. Check out the [FP8 example here](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_w8a8_fp8).**
 
+<details>
+<summary>Old content</summary>
+  
 Open-source FP8 quantization library for producing compressed checkpoints for running in vLLM - see https://github.com/vllm-project/vllm/pull/4332 for details on the implementation for inference. This library focuses on providing quantized weight, activation, and kv cache scales for FP8_E4M3 precision.
 
 [FP8 Model Collection from Neural Magic](https://huggingface.co/collections/neuralmagic/fp8-llms-for-vllm-666742ed2b78b7ac8df13127) with many accurate (<1% accuracy drop) FP8 checkpoints ready for inference with vLLM. 
@@ -103,3 +106,5 @@ If config has `"activation_scheme": "dynamic"`:
 model.layers.0.mlp.down_proj.weight              < F8_E4M3
 model.layers.0.mlp.down_proj.weight_scale        < F32
 ```
+
+</details>
